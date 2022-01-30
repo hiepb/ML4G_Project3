@@ -1,9 +1,26 @@
 import graph_generator
 
+from tensorboardX import SummaryWriter
 import numpy as np
 import torch
 from torch_geometric.data import Data
 from sklearn.metrics import confusion_matrix
+
+
+
+# Setup SummaryWriter - TensorBoardX
+class TensorBoard(SummaryWriter):
+
+    def __init__(self):
+        super(TensorBoard,self).__init__()
+
+    def loss_step_summarywriter(self,n_iter, loss):
+        """Add one step to the tensorboard on loss"""
+        self.add_scalar("Loss/train",loss,n_iter)
+
+    def acc_step_summarywriter(self,n_iter, acc):
+        "Add one step to the tensorboard on loss"
+        self.add_scalar("Loss/accuracy",acc,n_iter)
 
 
 def old_to_pyg_data(graph):

@@ -13,7 +13,7 @@ import random
 import torch
 import torch.nn as nn
 from tqdm import tqdm
-from tensorboardX import SummaryWriter
+
 # pip freeze > requirements.txt
 
 task_parameters = {}
@@ -28,7 +28,7 @@ task_parameters['p'] = 0.5
 task_parameters['q'] = 0.1
 task_parameters['W0'] = block.random_graph(task_parameters['size_subgraph'],task_parameters['p'])
 task_parameters['u0'] = np.random.randint(task_parameters['Voc'],size=task_parameters['size_subgraph'])
-file_name = '/home/userw/ml4g/project03/spatial_graph_convnets/data/set_100_subgraphs_p05_size20_Voc3_2017-10-31_10-23-00_.txt'
+file_name = '/home/florian/GraphML/ResGraph/ML4G_Project3/data/set_100_subgraphs_p05_size20_Voc3_2017-10-31_10-23-00_.txt'
 with open(file_name, 'rb') as fp:
     all_trainx = pickle.load(fp)
 task_parameters['all_trainx'] = all_trainx[:100]
@@ -49,6 +49,9 @@ if 2==1: # fast debugging
 opt_parameters['decay_rate'] = 1.25
 
 
+
+
+
 def set_seed(seed):
     """Set seed"""
     random.seed(seed)
@@ -64,7 +67,7 @@ def set_seed(seed):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, default='org', choices=['org', 'pyg'])
+    parser.add_argument('--model', type=str, default='orig', choices=['orig', 'pyg'])
     parser.add_argument('--max_iters', type=int, default=5000)
     parser.add_argument('--batch_iters', type=int, default=100)
     parser.add_argument('--learning_rate', type=float, default=0.00075)
@@ -107,6 +110,7 @@ def parse_args():
                         default=10,
                         type=int,
                         help='Number of residual gated graph convolutional layers.')
+    parser.add_argument('--logging',default=True,type=bool,help='Activate/deactivate logging on tensorboard')
 
     return parser.parse_args()
 
@@ -140,6 +144,9 @@ def main():
     else:
         print('Using CUDA: FALSE')
 
+    if args.logging:
+        writer = utils.TensorBoard()
+
     subgraph_adjMatrix, subgraph_features = create_subgraph(args.sizeSubgraph, args.p, args.vocSize)
 
     # garph params for original code
@@ -153,7 +160,7 @@ def main():
     graphParams['W0'] = subgraph_adjMatrix
     graphParams['u0'] = subgraph_features
 
-    if args.model == 'org':
+    if args.model == 'orig':
         # network parameters for original code
         net_parameters = {}
         net_parameters['Voc'] = args.vocSize
@@ -209,7 +216,7 @@ def main():
         if use_cuda:
             graphPyg = graphPyg.cuda()
 
-        if args.model == 'org':
+        if args.model == 'orig':
             out = model(graphOrg, use_cuda)
         elif args.model == 'pyg':
             out = model(graphPyg.x, graphPyg.edge_index)
@@ -263,6 +270,10 @@ def main():
             # save intermediate results
             tab_results.append([iteration, average_loss, 100 * average_accuracy, time.time()-t_start_total])
 
+            if(args.logging == True):
+                writer.loss_step_summarywriter(iteration,average_loss)
+                writer.acc_step_summarywriter(iteration,100 * average_accuracy)
+
             # print results
             if 1==1:
                 print('\niteration= %d, loss(%diter)= %.3f, lr= %.8f, time(%diter)= %.2f' %
@@ -288,7 +299,7 @@ def main():
             graphPyg = graphPyg.cuda()
 
         # forward, loss
-        if args.model == 'org':
+        if args.model == 'orig':
             out = model(graphOrg, use_cuda)
         elif args.model == 'pyg':
             out = model(graphPyg.x, graphPyg.edge_index)
