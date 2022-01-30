@@ -32,29 +32,3 @@ class RGGConvModel(nn.Module):
             x = self.hid(x, edge_index)
         x = self.fc(x)
         return x
-
-    # def loss(self, y, y_target, weight):
-    #     loss = nn.CrossEntropyLoss(weight=weight.type(torch.float))(y ,y_target)
-
-    #     return loss
-
-
-    # def update(self, lr):
-
-    #     update = torch.optim.Adam(self.parameters(), lr=lr )
-
-    #     return update
-
-
-    # def update_learning_rate(self, optimizer, lr):
-
-    #     for param_group in optimizer.param_groups:
-    #         param_group['lr'] = lr
-
-    #         return optimizer
-
-
-    # def nb_param(self):
-
-    #     # return self.nb_param
-    #     return self.dimOut

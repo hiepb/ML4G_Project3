@@ -6,50 +6,15 @@ import utils
 
 import os
 import time
-import pickle
 import argparse
 import numpy as np
 import random
 import torch
 import torch.nn as nn
 from tqdm import tqdm
-
+from tensorboardX import SummaryWriter
+from torch_geometric.nn import BatchNorm
 # pip freeze > requirements.txt
-
-task_parameters = {}
-task_parameters['flag_task'] = 'matching'
-task_parameters['nb_communities'] = 10
-task_parameters['nb_clusters_target'] = 2
-task_parameters['Voc'] = 3
-task_parameters['size_min'] = 15
-task_parameters['size_max'] = 25
-task_parameters['size_subgraph'] = 20
-task_parameters['p'] = 0.5
-task_parameters['q'] = 0.1
-task_parameters['W0'] = block.random_graph(task_parameters['size_subgraph'],task_parameters['p'])
-task_parameters['u0'] = np.random.randint(task_parameters['Voc'],size=task_parameters['size_subgraph'])
-file_name = '/home/florian/GraphML/ResGraph/ML4G_Project3/data/set_100_subgraphs_p05_size20_Voc3_2017-10-31_10-23-00_.txt'
-with open(file_name, 'rb') as fp:
-    all_trainx = pickle.load(fp)
-task_parameters['all_trainx'] = all_trainx[:100]
-
-
-
-# #print(net_parameters)
-
-
-# # optimization parameters
-opt_parameters = {}
-opt_parameters['learning_rate'] = 0.00075   # ADAM
-opt_parameters['max_iters'] = 5000
-opt_parameters['batch_iters'] = 100
-if 2==1: # fast debugging
-    opt_parameters['max_iters'] = 101
-    opt_parameters['batch_iters'] = 10
-opt_parameters['decay_rate'] = 1.25
-
-
-
 
 
 def set_seed(seed):
@@ -73,7 +38,7 @@ def parse_args():
     parser.add_argument('--learning_rate', type=float, default=0.00075)
     parser.add_argument('--decay_rate', type=float, default=1.25)
     parser.add_argument('--no_cuda', help='Set this if cuda is availbable, but you do NOT want to use it.', action='store_true')
-    parser.add_argument('--seed', type=str, default=42)
+    parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--sizeSubgraph',
                         default=20,
                         type=int,
@@ -110,7 +75,7 @@ def parse_args():
                         default=10,
                         type=int,
                         help='Number of residual gated graph convolutional layers.')
-    parser.add_argument('--logging',default=True,type=bool,help='Activate/deactivate logging on tensorboard')
+    parser.add_argument('--logDir', default=None, type=str, help='tensorboardXs save directory location.')  # TODO
 
     return parser.parse_args()
 
@@ -132,11 +97,33 @@ def create_subgraph(sizeSubgraph=20, p=0.5, vocSize=3):
 def lossFn(weight, out, y):
     return nn.CrossEntropyLoss(weight=weight)(out, y)
 
+def create_legacy_parameters(args):
+    """ Creates a dictionary with the subgraph matching parameters for the code of the origianl author"""
+    # Create subgraph that will be searched for in the larger graph
+    subgraph_adjMatrix, subgraph_features = create_subgraph(args.sizeSubgraph, args.p, args.vocSize)
+    legacyParams = dict()
+    legacyParams['Voc'] = args.vocSize
+    legacyParams['nb_clusters_target'] = 2
+    legacyParams['size_min'] = args.sizeMin
+    legacyParams['size_max'] = args.sizeMax
+    legacyParams['p'] = args.p
+    legacyParams['q'] = args.q
+    legacyParams['W0'] = subgraph_adjMatrix
+    legacyParams['u0'] = subgraph_features
+    legacyParams['D'] = args.dimEmb
+    legacyParams['H'] = args.dimHid
+    legacyParams['L'] = args.numLayers
+    legacyParams['flag_task'] = 'matching'
+    return legacyParams
+
 
 def main():
+
     args = parse_args()
-    set_seed(args.seed)
+    if args.seed:
+        set_seed(args.seed)
     print(args)
+
     use_cuda = False
     if torch.cuda.is_available() and not args.no_cuda:
         use_cuda = True
@@ -144,40 +131,17 @@ def main():
     else:
         print('Using CUDA: FALSE')
 
-    if args.logging:
-        writer = utils.TensorBoard()
 
-    subgraph_adjMatrix, subgraph_features = create_subgraph(args.sizeSubgraph, args.p, args.vocSize)
+    # Define legacy parameters for the code of the original author
+    legacyParams = create_legacy_parameters(args)
 
-    # garph params for original code
-    graphParams = dict()
-    graphParams['Voc'] = args.vocSize
-    graphParams['nb_clusters_target'] = 2
-    graphParams['size_min'] = args.sizeMin
-    graphParams['size_max'] = args.sizeMax
-    graphParams['p'] = args.p
-    graphParams['q'] = args.q
-    graphParams['W0'] = subgraph_adjMatrix
-    graphParams['u0'] = subgraph_features
-
+    # Define model
     if args.model == 'orig':
-        # network parameters for original code
-        net_parameters = {}
-        net_parameters['Voc'] = args.vocSize
-        net_parameters['D'] = args.dimEmb
-        net_parameters['nb_clusters_target'] = 2
-        net_parameters['H'] = args.dimHid
-        net_parameters['L'] = args.numLayers
-        # custom
-        net_parameters['flag_task'] = 'matching'
-
-        model = Graph_OurConvNet(net_parameters)
+        model = Graph_OurConvNet(legacyParams)
     elif args.model == 'pyg':
         model = RGGConvModel(dimIn=args.vocSize, dimEmb=args.dimEmb, dimHid=args.dimHid, dimOut=2, numLayers=args.numLayers)
-
     if use_cuda:
         model = model.cuda()
-
     print(model)
 
     # number of network parameters
@@ -193,11 +157,8 @@ def main():
     decay_rate = args.decay_rate
 
     # Optimizer
-    global_lr = learning_rate
-    global_step = 0
     lr = learning_rate
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    # optimizer = model.update(lr)
 
     t_start = time.time()
     t_start_total = time.time()
@@ -208,8 +169,13 @@ def main():
     running_accuracy = 0
     tab_results = []
 
+    writer = SummaryWriter()    # TODO
+    logDir = writer.logdir
+    print(logDir)
+
     for iteration in range(max_iters):
-        graphOrg = g.variable_size_graph(graphParams)
+        model.train()
+        graphOrg = g.variable_size_graph(legacyParams)
         graphPyg = utils.to_pyg_data(graphOrg)
         # print(graphPyg)
         # print(graphPyg.y)
@@ -270,65 +236,66 @@ def main():
             # save intermediate results
             tab_results.append([iteration, average_loss, 100 * average_accuracy, time.time()-t_start_total])
 
-            if(args.logging == True):
-                writer.loss_step_summarywriter(iteration,average_loss)
-                writer.acc_step_summarywriter(iteration,100 * average_accuracy)
+            writer.add_scalar('train/loss', average_loss, iteration)
+            writer.add_scalar('train/accuracy', average_accuracy, iteration)
+            writer.add_scalar('train/time', t_stop, iteration)
 
             # print results
-            if 1==1:
-                print('\niteration= %d, loss(%diter)= %.3f, lr= %.8f, time(%diter)= %.2f' %
+            if 1 == 1:
+                print('\niteration=%d, loss(%diter)=%.3f, lr=%.8f, time(%diter)=%.2f' %
                       (iteration, batch_iters, average_loss, lr, batch_iters, t_stop))
                 #print('Confusion matrix= \n', 100* average_conf_mat)
-                print('accuracy= %.3f' % (100 * average_accuracy))
+                print('accuracy=%.3f' % (100 * average_accuracy))
 
-
-    ############
-    # Evaluation on 100 pre-saved data
-    ############
+    # Testing
     running_loss = 0.0
     running_total = 0
     running_conf_mat = 0
     running_accuracy = 0
-    for iteration in range(100):
+    # model.eval()   # decreases accuracy considerbly
+    # for m in model.modules():
+    #     if isinstance(m, BatchNorm):
+    #         m.track_runing_stats = False
+    with torch.no_grad():
+        for iteration in range(100):
 
-        # generate one data
-        graphOrg = g.variable_size_graph(task_parameters)
-        graphPyg = utils.to_pyg_data(graphOrg)
+            # generate one data
+            graphOrg = g.variable_size_graph(legacyParams)
+            graphPyg = utils.to_pyg_data(graphOrg)
 
-        if use_cuda:
-            graphPyg = graphPyg.cuda()
+            if use_cuda:
+                graphPyg = graphPyg.cuda()
 
-        # forward, loss
-        if args.model == 'orig':
-            out = model(graphOrg, use_cuda)
-        elif args.model == 'pyg':
-            out = model(graphPyg.x, graphPyg.edge_index)
-        # y = net.forward(train_x)
-        # compute loss weigth
-        # labels = train_y.data.cpu().numpy()
+            if args.model == 'orig':
+                out = model(graphOrg, use_cuda)
+            elif args.model == 'pyg':
+                out = model(graphPyg.x, graphPyg.edge_index)
 
-        weight = utils.compute_loss_weight(graphPyg.y)
+            weight = utils.compute_loss_weight(graphPyg.y)
 
-        if use_cuda:
-            weight = weight.cuda()
+            if use_cuda:
+                weight = weight.cuda()
 
-        loss = lossFn(weight, out, graphPyg.y)
-        loss_train = loss.item()
-        running_loss += loss_train
-        running_total += 1
+            loss = lossFn(weight, out, graphPyg.y)
+            loss_train = loss.item()
+            running_loss += loss_train
+            running_total += 1
 
-        CM, numClasses = utils.compute_confusion_matrix(out, graphPyg.y)
+            CM, numClasses = utils.compute_confusion_matrix(out, graphPyg.y)
 
-        running_conf_mat += CM
-        running_accuracy += np.sum(np.diag(CM))/ numClasses
+            running_conf_mat += CM
+            running_accuracy += np.sum(np.diag(CM)) / numClasses
 
-        # confusion matrix
-        average_conf_mat = running_conf_mat / running_total
-        average_accuracy = running_accuracy / running_total
-        average_loss = running_loss / running_total
+            # confusion matrix
+            average_conf_mat = running_conf_mat / running_total
+            average_accuracy = running_accuracy / running_total
+            average_loss = running_loss / running_total
+
+            writer.add_scalar("test/loss", loss.item(), iteration)
+            writer.add_scalar("test/accuracy", (np.sum(np.diag(CM)) / numClasses), iteration)
 
     # print results
-    print('\nloss(100 pre-saved data)= %.3f, accuracy(100 pre-saved data)= %.3f' % (average_loss, 100 * average_accuracy))
+    print('\nloss(100 pre-saved data)=%.3f, accuracy(100 pre-saved data)=%.3f' % (average_loss, 100 * average_accuracy))
 
 
     #############
