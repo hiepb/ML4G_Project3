@@ -13,9 +13,7 @@ import numpy as np
 import random
 import torch
 import torch.nn as nn
-from tqdm import tqdm
 from tensorboardX import SummaryWriter
-from torch_geometric.nn import BatchNorm
 # pip freeze > requirements.txt
 
 
@@ -78,7 +76,7 @@ def parse_args():
                         type=int,
                         help='Number of residual gated graph convolutional layers.')
     parser.add_argument('--logDir', default=None, type=str, help='tensorboardXs save directory location.')  # TODO
-    parser.add_argument('--numRuns', default=2, type=int, help='The number of times the experiment should be repeated. The performance metrics gets averaged over all runs.')
+    parser.add_argument('--numRuns', default=5, type=int, help='The number of times the experiment should be repeated. The performance metrics gets averaged over all runs.')
 
     return parser.parse_args()
 
@@ -97,8 +95,10 @@ def create_subgraph(sizeSubgraph=20, p=0.5, vocSize=3):
     nodeFeatures = np.random.randint(vocSize, size=sizeSubgraph)
     return adjMatrix, nodeFeatures
 
+
 def lossFn(weight, out, y):
     return nn.CrossEntropyLoss(weight=weight)(out, y)
+
 
 def create_legacy_parameters(args):
     """ Creates a dictionary with the subgraph matching parameters for the code of the origianl author"""
@@ -129,6 +129,11 @@ def main():
 
     timeAbsolute = time.time()
 
+    if args.logDir is None:
+        logDir = str(time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime()))
+    else:
+        logDir = args.logDir
+
     use_cuda = False
     if torch.cuda.is_available() and not args.no_cuda:
         use_cuda = True
@@ -141,7 +146,7 @@ def main():
     time_runs_eval = []
     # Repeat experiment numRuns times
     for run in range(args.numRuns):
-
+        print(f'####################Starting run: {str(run).zfill(4)}####################')
         # Define legacy parameters for the code of the original author
         legacyParams = create_legacy_parameters(args)
 
@@ -154,7 +159,7 @@ def main():
             model = model.cuda()
 
         # number of network parameters
-        numParams = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        # numParams = sum(p.numel() for p in model.parameters() if p.requires_grad)
         # print(model)
         # print(f'Number of parameters: {numParams}')
         # print(f'Number of residual gated graph convolutional layers: {args.numLayers}')
@@ -180,12 +185,9 @@ def main():
         tab_results = []
 
         tensorboardPath = pathlib.Path.cwd()
-        if args.logDir is None:
-            logDir = str(time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime()))
-        else:
-            logDir = args.logDir
         tensorboardPath = tensorboardPath.joinpath('runs', logDir, f'run{str(run).zfill(4)}')
         writer = SummaryWriter(tensorboardPath)    # TODO
+        print(f'Writing results of run {str(run).zfill(4)} to: {writer.logdir}')
 
         for iteration in range(max_iters):
             model.train()
@@ -205,7 +207,6 @@ def main():
             if use_cuda:
                 weight = weight.cuda()
 
-            # loss = nn.CrossEntropyLoss(weight=weight)(out, graphPyg.y)
             loss = lossFn(weight, out, graphPyg.y)
 
             loss_train = loss.item()
@@ -230,7 +231,6 @@ def main():
                 t_start = time.time()
 
                 # confusion matrix
-                average_conf_mat = running_conf_mat / running_total
                 running_conf_mat = 0
 
                 # accuracy
@@ -304,28 +304,16 @@ def main():
                 average_accuracy = running_accuracy / running_total
                 average_loss = running_loss / running_total
 
+                curAcc = np.sum(np.diag(CM)) / numClasses
                 writer.add_scalar("test/loss", loss.item(), iteration)
                 writer.add_scalar("test/accuracy", (np.sum(np.diag(CM)) / numClasses), iteration)
 
             timeEnd_eval = time.time() - timeStart_eval
 
         # print results
-        print('\nloss(100 pre-saved data)=%.3f, accuracy(100 pre-saved data)=%.3f' % (average_loss, 100 * average_accuracy))
+        print('\nloss(100 pre-saved data)=%.3f, accuracy(100 pre-saved data)=%.3f\n' % (average_loss, 100 * average_accuracy))
         accuracy_runs.append(average_accuracy)
         time_runs_eval.append(timeEnd_eval)
-
-
-    #############
-    # output
-    #############
-    # result = {}
-    # result['final_loss'] = average_loss
-    # result['final_acc'] = 100 * average_accuracy
-    # result['final_CM'] = 100 * average_conf_mat
-    # result['final_batch_time'] = t_stop
-    # result['nb_param_nn'] = numParams
-    # result['plot_all_epochs'] = tab_results
-    # print(result)
 
     print(accuracy_runs)
     print()
@@ -335,6 +323,7 @@ def main():
     print()
     print(f'run time: {str(timedelta(seconds=(time.time() - timeAbsolute)))}\n{args}')
     print('##################################################################')
+
 
 if __name__ == '__main__':
     main()
