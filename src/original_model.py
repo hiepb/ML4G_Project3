@@ -29,8 +29,8 @@ class OurConvNetcell(nn.Module):
         self.bv2 = torch.nn.Parameter(torch.FloatTensor(dim_out), requires_grad=True)
 
         # bn1, bn2
-        self.bn1 = torch.nn.BatchNorm1d(dim_out)
-        self.bn2 = torch.nn.BatchNorm1d(dim_out)
+        self.bn1 = torch.nn.BatchNorm1d(dim_out, track_running_stats=False)
+        self.bn2 = torch.nn.BatchNorm1d(dim_out, track_running_stats=False)
 
         # resnet
         self.R = nn.Linear(dim_in, dim_out, bias=False)

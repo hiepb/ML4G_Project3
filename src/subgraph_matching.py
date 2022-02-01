@@ -76,6 +76,7 @@ def parse_args():
                         type=int,
                         help='Number of residual gated graph convolutional layers.')
     parser.add_argument('--logDir', default=None, type=str, help='tensorboardXs save directory location.')  # TODO
+    parser.add_argument('--numRuns', default=5, type=int, help='The number of times the experiment should be repeated.')
 
     return parser.parse_args()
 
@@ -204,9 +205,9 @@ def main():
         running_accuracy += np.sum(np.diag(CM)) / numClasses
 
         # backward, update
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        optimizer.zero_grad()
 
         # learning rate, print results
         if not iteration % batch_iters:
@@ -241,7 +242,7 @@ def main():
             writer.add_scalar('train/time', t_stop, iteration)
 
             # print results
-            if 1 == 1:
+            if 1 == 2:
                 print('\niteration=%d, loss(%diter)=%.3f, lr=%.8f, time(%diter)=%.2f' %
                       (iteration, batch_iters, average_loss, lr, batch_iters, t_stop))
                 #print('Confusion matrix= \n', 100* average_conf_mat)
@@ -252,10 +253,7 @@ def main():
     running_total = 0
     running_conf_mat = 0
     running_accuracy = 0
-    # model.eval()   # decreases accuracy considerbly
-    # for m in model.modules():
-    #     if isinstance(m, BatchNorm):
-    #         m.track_runing_stats = False
+    model.eval()
     with torch.no_grad():
         for iteration in range(100):
 

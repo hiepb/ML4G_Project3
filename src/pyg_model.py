@@ -18,7 +18,7 @@ class RGGConvModel(nn.Module):
             hidLayers = []
             for _ in range(self.numLayers):
                 hidLayers.append((ResGatedGraphConv(dimHid, dimHid), 'x, edge_index -> x'))
-                hidLayers.append(BatchNorm(dimHid,track_running_stats=False))
+                hidLayers.append(BatchNorm(dimHid, track_running_stats=False))
                 hidLayers.append(nn.ReLU(inplace=True))
             self.hid = Sequential('x, edge_index', hidLayers)
 
