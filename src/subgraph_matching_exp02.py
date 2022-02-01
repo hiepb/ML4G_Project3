@@ -1,39 +1,3 @@
-# task_parameters = {}
-# task_parameters['flag_task'] = 'clustering'
-# task_parameters['nb_communities'] = 10
-# task_parameters['nb_clusters_target'] = task_parameters['nb_communities']
-# task_parameters['Voc'] = task_parameters['nb_communities'] + 1
-# task_parameters['size_min'] = 5
-# task_parameters['size_max'] = 25
-# task_parameters['p'] = 0.5
-# task_parameters['q'] = 0.1
-# file_name = 'data/set_100_clustering_maps_p05_q01_size5_25_2017-10-31_10-25-00_.txt'
-# with open(file_name, 'rb') as fp:
-#     all_trainx = pickle.load(fp)
-# task_parameters['all_trainx'] = all_trainx[:100]
-
-
-# # network parameters
-# net_parameters = {}
-# net_parameters['Voc'] = task_parameters['Voc']
-# net_parameters['D'] = 50
-# net_parameters['nb_clusters_target'] = task_parameters['nb_clusters_target']
-# net_parameters['H'] = 50
-# net_parameters['L'] = 10
-# #print(net_parameters)
-
-
-# # optimization parameters
-# opt_parameters = {}
-# opt_parameters['learning_rate'] = 0.00075   # ADAM
-# opt_parameters['max_iters'] = 5000
-# opt_parameters['batch_iters'] = 100
-# if 2==1: # fast debugging
-#     opt_parameters['max_iters'] = 101
-#     opt_parameters['batch_iters'] = 10
-# opt_parameters['decay_rate'] = 1.25
-
-
 from original_model import Graph_OurConvNet
 from pyg_model import RGGConvModel
 import block
@@ -69,17 +33,23 @@ def set_seed(seed):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, default='pyg', choices=['pyg'], help='Original was removed because its components consists of 2 confvs so layer=1 is infeasible')
+    parser.add_argument('--model', type=str, default='pyg', choices=['orig', 'pyg'])
     parser.add_argument('--max_iters', type=int, default=5000)
 #    parser.add_argument('--batch_iters', type=int, default=100)
     parser.add_argument('--learning_rate', type=float, default=0.00075)
     parser.add_argument('--decay_rate', type=float, default=1.25)
     parser.add_argument('--no_cuda', help='Set this if cuda is availbable, but you do NOT want to use it.', action='store_true')
-    parser.add_argument('--numComm', type=int, default=10, help='Number of communities in the graph')
-    parser.add_argument('dataDir', type=str, help='path to the data directory')
     parser.add_argument('--seed', type=int, default=None)
+    parser.add_argument('--sizeSubgraph',
+                        default=20,
+                        type=int,
+                        help='The number of nodes in the subgraph.')
+    parser.add_argument('--vocSize',
+                        default=3,
+                        type=int,
+                        help='The signal on the subgraph is generated with a uniform random distribution with a vocabulary of size vocSize.')
     parser.add_argument('--sizeMin',
-                        default=5,
+                        default=15,
                         type=int,
                         help='Minimum number of nodes of other communities.')
     parser.add_argument('--sizeMax',
@@ -90,10 +60,18 @@ def parse_args():
                         default=0.5,
                         type=float,
                         help='Probability that two nodes of the same community are connected.')
+    parser.add_argument('-q',
+                        default=0.1,
+                        type=float,
+                        help='Probability that two nodes of the different communities are connected.')
     parser.add_argument('--dimEmb',
                         default=50,
                         type=int,
                         help='Embedding dimension.')
+    parser.add_argument('--numLayers',
+                        default=6,
+                        type=int,
+                        help='Number of residual gated graph convolutional layers.')
     parser.add_argument('--logDir', default=None, type=str, help='tensorboardXs save directory location.')  # TODO
     parser.add_argument('--numRuns', default=5, type=int, help='The number of times the experiment should be repeated. The performance metrics gets averaged over all runs.')
 
@@ -145,9 +123,10 @@ def main():
     if args.seed:
         set_seed(args.seed)
     # following the paper parameters
-    args.numLayers = 1
-    args.dimHid = 480          # results in a budget of 100K
+    args.dimHid = 50
+
     print(args)
+
     timeAbsolute = time.time()
 
     if args.logDir is None:
@@ -163,8 +142,8 @@ def main():
         print('Using CUDA: FALSE')
 
     data = OrderedDict()
-    for curQ in [0.1, 0.2, 0.35, 0.5]:
-        args.q = curQ
+    for curL in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]:
+        args.numLayers = curL
         accuracy_runs = []
         time_runs_train = []
         time_runs_eval = []
@@ -183,9 +162,9 @@ def main():
                 model = model.cuda()
 
             # number of network parameters
+            # numParams = sum(p.numel() for p in model.parameters() if p.requires_grad)
             # print(model)
-            numParams = sum(p.numel() for p in model.parameters() if p.requires_grad)
-            print(f'Number of parameters: {numParams}')
+            # print(f'Number of parameters: {numParams}')
             # print(f'Number of residual gated graph convolutional layers: {args.numLayers}')
             # print(f'Hidden dim: {args.dimHid}')
 
@@ -209,7 +188,7 @@ def main():
             tab_results = []
 
             tensorboardPath = pathlib.Path.cwd()
-            tensorboardPath = tensorboardPath.joinpath('runs', logDir, f'q_{curQ}', f'run{str(run).zfill(4)}')
+            tensorboardPath = tensorboardPath.joinpath('runs', logDir, f'L_{curL}', f'run{str(run).zfill(4)}')
             writer = SummaryWriter(tensorboardPath)    # TODO
             print(f'Writing results of run {str(run).zfill(4)} to: {writer.logdir}')
 
@@ -348,10 +327,10 @@ def main():
         # print()
         # print(f'run time: {str(timedelta(seconds=(time.time() - timeAbsolute)))}\n{args}')
         # print('##################################################################')
-        data[curQ] = (np.mean(accuracy_runs), np.mean(time_runs_train), np.mean(time_runs_eval))
+        data[curL] = (np.mean(accuracy_runs), np.mean(time_runs_train), np.mean(time_runs_eval))
 
     print(data)
-    utils.create_plots(data, 'q', logDir)
+    utils.create_plots(data, 'L', logDir)
     print(f'run time: {str(timedelta(seconds=(time.time() - timeAbsolute)))}\n{args}')
     print('##################################################################')
 

@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from torch_geometric.data import Data
 from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
 
 
 def old_to_pyg_data(graph):
@@ -75,9 +76,46 @@ def compute_confusion_matrix(out, y):
     return CM, nb_classes
 
 
+def create_plots(data, xlabel, path):
+    print(data)
+    x = []
+    y_acc = []
+    y_time_train = []
+    y_time_test = []
+    for key in data.keys():
+        x.append(key)
+        y_acc.append(data[key][0])
+        y_time_train.append(data[key][1])
+        y_time_test.append(data[key][2])
+
+    fig, ax = plt.subplots(1, 1)
+    ax.plot(x, y_acc)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel('Accuracy')
+    plt.savefig(path+'_accuracy')
+
+    fig, ax = plt.subplots(1, 1)
+    ax.plot(x, y_time_train)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel('Batch time train (sec)')
+    plt.savefig(path+'_time_train')
+
+    fig, ax = plt.subplots(1, 1)
+    ax.plot(x, y_time_test)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel('Batch time test (sec)')
+    plt.savefig(path+'_time_test')
+
+
 if __name__ == '__main__':
     import pickle
     import block
+
+    from collections import OrderedDict
+
+    data = OrderedDict([(1, (0.7410000044107437, 0.3379010558128357, 0.3219701051712036)), (2, (0.9604166674613952, 0.44071486592292786, 0.35011231899261475)), (3, (0.9636250057816506, 0.542947381734848, 0.38097822666168213)), (4, (0.9975000014901161, 0.6440851092338562, 0.41156005859375)), (5, (0.9972083348035812, 0.7463850975036621, 0.4456031322479248)), (6, (0.9942500033974648, 0.8445881605148315, 0.47296643257141113)), (7, (0.9944583350419998, 0.9684409201145172, 0.5133578777313232)), (8, (0.9956250035762787, 1.088496595621109, 0.5536187887191772)), (9, (0.9950833368301392, 1.1776520013809204, 0.5735207796096802)), (10, (0.9982916679978371, 1.2905015647411346, 0.6090717315673828))])
+    create_plots(data, 'test', 'testplot')
+    exit()
 
     def print_graph_info(graph):
         print(f'adjacency matrix ({type(graph.adj_matrix)}):\n {graph.adj_matrix}')

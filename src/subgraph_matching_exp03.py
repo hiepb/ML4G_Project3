@@ -9,6 +9,7 @@ import time
 from datetime import timedelta
 import argparse
 import pathlib
+from collections import OrderedDict
 import numpy as np
 import random
 import torch
@@ -141,142 +142,63 @@ def main():
     else:
         print('Using CUDA: FALSE')
 
-    accuracy_runs = []
-    time_runs_train = []
-    time_runs_eval = []
-    # Repeat experiment numRuns times
-    for run in range(args.numRuns):
-        print(f'####################Starting run: {str(run).zfill(4)}####################')
-        # Define legacy parameters for the code of the original author
-        legacyParams = create_legacy_parameters(args)
+    data = OrderedDict()
+    for curBudget in [0.1, 0.2, 0.35, 0.5]:
+        args.q = curBudget
+        accuracy_runs = []
+        time_runs_train = []
+        time_runs_eval = []
+        # Repeat experiment numRuns times
+        for run in range(args.numRuns):
+            print(f'####################Starting run: {str(run).zfill(4)}####################')
+            # Define legacy parameters for the code of the original author
+            legacyParams = create_legacy_parameters(args)
 
-        # Define model
-        if args.model == 'orig':
-            model = Graph_OurConvNet(legacyParams)
-        elif args.model == 'pyg':
-            model = RGGConvModel(dimIn=args.vocSize, dimEmb=args.dimEmb, dimHid=args.dimHid, dimOut=2, numLayers=args.numLayers)
-        if use_cuda:
-            model = model.cuda()
-
-        # number of network parameters
-        numParams = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        print(model)
-        print(f'Number of parameters: {numParams}')
-        print(f'Number of residual gated graph convolutional layers: {args.numLayers}')
-        print(f'Hidden dim: {args.dimHid}')
-        exit()
-
-        # optimization parameters
-        learning_rate = args.learning_rate
-        max_iters = args.max_iters
-        batch_iters = 100  # args.batch_iters
-        decay_rate = args.decay_rate
-
-        # Optimizer
-        lr = learning_rate
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-
-        t_start = time.time()
-        t_start_total = time.time()
-        average_loss_old = 1e10
-        running_loss = 0.0
-        running_total = 0
-        running_conf_mat = 0
-        running_accuracy = 0
-        tab_results = []
-
-        tensorboardPath = pathlib.Path.cwd()
-        tensorboardPath = tensorboardPath.joinpath('runs', logDir, f'run{str(run).zfill(4)}')
-        writer = SummaryWriter(tensorboardPath)    # TODO
-        print(f'Writing results of run {str(run).zfill(4)} to: {writer.logdir}')
-
-        for iteration in range(max_iters):
-            model.train()
-            graphOrg = g.variable_size_graph(legacyParams)
-            graphPyg = utils.to_pyg_data(graphOrg)
-            # print(graphPyg)
-            # print(graphPyg.y)
-            if use_cuda:
-                graphPyg = graphPyg.cuda()
-
+            # Define model
             if args.model == 'orig':
-                out = model(graphOrg, use_cuda)
+                model = Graph_OurConvNet(legacyParams)
             elif args.model == 'pyg':
-                out = model(graphPyg.x, graphPyg.edge_index)
-
-            weight = utils.compute_loss_weight(graphPyg.y)
+                model = RGGConvModel(dimIn=args.vocSize, dimEmb=args.dimEmb, dimHid=args.dimHid, dimOut=2, numLayers=args.numLayers)
             if use_cuda:
-                weight = weight.cuda()
+                model = model.cuda()
 
-            loss = lossFn(weight, out, graphPyg.y)
+            # number of network parameters
+            # numParams = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            # print(model)
+            # print(f'Number of parameters: {numParams}')
+            # print(f'Number of residual gated graph convolutional layers: {args.numLayers}')
+            # print(f'Hidden dim: {args.dimHid}')
 
-            loss_train = loss.item()
-            running_loss += loss_train
-            running_total += 1
+            # optimization parameters
+            learning_rate = args.learning_rate
+            max_iters = args.max_iters
+            batch_iters = 100  # args.batch_iters
+            decay_rate = args.decay_rate
 
-            CM, numClasses = utils.compute_confusion_matrix(out, graphPyg.y)
+            # Optimizer
+            lr = learning_rate
+            optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-            running_conf_mat += CM
-            running_accuracy += np.sum(np.diag(CM)) / numClasses
+            t_start = time.time()
+            t_start_total = time.time()
+            average_loss_old = 1e10
+            running_loss = 0.0
+            running_total = 0
+            running_conf_mat = 0
+            running_accuracy = 0
+            tab_results = []
 
-            # backward, update
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            tensorboardPath = pathlib.Path.cwd()
+            tensorboardPath = tensorboardPath.joinpath('runs', logDir, f'q_{curBudget}', f'run{str(run).zfill(4)}')
+            writer = SummaryWriter(tensorboardPath)    # TODO
+            print(f'Writing results of run {str(run).zfill(4)} to: {writer.logdir}')
 
-            # learning rate, print results
-            if not iteration % batch_iters:
-
-                # time
-                t_stop = time.time() - t_start
-                t_start = time.time()
-
-                # confusion matrix
-                running_conf_mat = 0
-
-                # accuracy
-                average_accuracy = running_accuracy / running_total
-                running_accuracy = 0
-
-                # update learning rate
-                average_loss = running_loss / running_total
-                if average_loss > 0.99 * average_loss_old:
-                    lr /= decay_rate
-                average_loss_old = average_loss
-                for param_group in optimizer.param_groups:
-                    param_group['lr'] = lr
-                running_loss = 0.0
-                running_total = 0
-
-                # save intermediate results
-                tab_results.append([iteration, average_loss, 100 * average_accuracy, time.time()-t_start_total])
-
-                writer.add_scalar('train/loss', average_loss, iteration)
-                writer.add_scalar('train/accuracy', average_accuracy, iteration)
-                writer.add_scalar('train/time', t_stop, iteration)
-                time_runs_train.append(t_stop)
-
-                # print results
-                if 1 == 2:
-                    print('\niteration=%d, loss(%diter)=%.3f, lr=%.8f, time(%diter)=%.2f' %
-                          (iteration, batch_iters, average_loss, lr, batch_iters, t_stop))
-                    #print('Confusion matrix= \n', 100* average_conf_mat)
-                    print('accuracy=%.3f' % (100 * average_accuracy))
-
-        # Testing
-        running_loss = 0.0
-        running_total = 0
-        running_conf_mat = 0
-        running_accuracy = 0
-        model.eval()
-        with torch.no_grad():
-            timeStart_eval = time.time()
-            for iteration in range(100):
-
-                # generate one data
+            for iteration in range(max_iters):
+                model.train()
                 graphOrg = g.variable_size_graph(legacyParams)
                 graphPyg = utils.to_pyg_data(graphOrg)
-
+                # print(graphPyg)
+                # print(graphPyg.y)
                 if use_cuda:
                     graphPyg = graphPyg.cuda()
 
@@ -286,11 +208,11 @@ def main():
                     out = model(graphPyg.x, graphPyg.edge_index)
 
                 weight = utils.compute_loss_weight(graphPyg.y)
-
                 if use_cuda:
                     weight = weight.cuda()
 
                 loss = lossFn(weight, out, graphPyg.y)
+
                 loss_train = loss.item()
                 running_loss += loss_train
                 running_total += 1
@@ -300,31 +222,117 @@ def main():
                 running_conf_mat += CM
                 running_accuracy += np.sum(np.diag(CM)) / numClasses
 
-                # confusion matrix
-                # average_conf_mat = running_conf_mat / running_total
-                average_accuracy = running_accuracy / running_total
-                average_loss = running_loss / running_total
+                # backward, update
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
-                curAcc = np.sum(np.diag(CM)) / numClasses
-                writer.add_scalar("test/loss", loss.item(), iteration)
-                writer.add_scalar("test/accuracy", (np.sum(np.diag(CM)) / numClasses), iteration)
+                # learning rate, print results
+                if not iteration % batch_iters:
 
-            timeEnd_eval = time.time() - timeStart_eval
+                    # time
+                    t_stop = time.time() - t_start
+                    t_start = time.time()
 
-        # print results
-        print('\nloss(100 pre-saved data)=%.3f, accuracy(100 pre-saved data)=%.3f\n' % (average_loss, 100 * average_accuracy))
-        accuracy_runs.append(average_accuracy)
-        time_runs_eval.append(timeEnd_eval)
+                    # confusion matrix
+                    running_conf_mat = 0
 
-    print(accuracy_runs)
-    print()
-    print(time_runs_train)
-    print()
-    print(time_runs_eval)
-    print()
+                    # accuracy
+                    average_accuracy = running_accuracy / running_total
+                    running_accuracy = 0
+
+                    # update learning rate
+                    average_loss = running_loss / running_total
+                    if average_loss > 0.99 * average_loss_old:
+                        lr /= decay_rate
+                    average_loss_old = average_loss
+                    for param_group in optimizer.param_groups:
+                        param_group['lr'] = lr
+                    running_loss = 0.0
+                    running_total = 0
+
+                    # save intermediate results
+                    tab_results.append([iteration, average_loss, 100 * average_accuracy, time.time()-t_start_total])
+
+                    writer.add_scalar('train/loss', average_loss, iteration)
+                    writer.add_scalar('train/accuracy', average_accuracy, iteration)
+                    writer.add_scalar('train/time', t_stop, iteration)
+                    time_runs_train.append(t_stop)
+
+                    # print results
+                    if 1 == 2:
+                        print('\niteration=%d, loss(%diter)=%.3f, lr=%.8f, time(%diter)=%.2f' %
+                              (iteration, batch_iters, average_loss, lr, batch_iters, t_stop))
+                        #print('Confusion matrix= \n', 100* average_conf_mat)
+                        print('accuracy=%.3f' % (100 * average_accuracy))
+
+            # Testing
+            running_loss = 0.0
+            running_total = 0
+            running_conf_mat = 0
+            running_accuracy = 0
+            model.eval()
+            with torch.no_grad():
+                timeStart_eval = time.time()
+                for iteration in range(100):
+
+                    # generate one data
+                    graphOrg = g.variable_size_graph(legacyParams)
+                    graphPyg = utils.to_pyg_data(graphOrg)
+
+                    if use_cuda:
+                        graphPyg = graphPyg.cuda()
+
+                    if args.model == 'orig':
+                        out = model(graphOrg, use_cuda)
+                    elif args.model == 'pyg':
+                        out = model(graphPyg.x, graphPyg.edge_index)
+
+                    weight = utils.compute_loss_weight(graphPyg.y)
+
+                    if use_cuda:
+                        weight = weight.cuda()
+
+                    loss = lossFn(weight, out, graphPyg.y)
+                    loss_train = loss.item()
+                    running_loss += loss_train
+                    running_total += 1
+
+                    CM, numClasses = utils.compute_confusion_matrix(out, graphPyg.y)
+
+                    running_conf_mat += CM
+                    running_accuracy += np.sum(np.diag(CM)) / numClasses
+
+                    # confusion matrix
+                    # average_conf_mat = running_conf_mat / running_total
+                    average_accuracy = running_accuracy / running_total
+                    average_loss = running_loss / running_total
+
+                    curAcc = np.sum(np.diag(CM)) / numClasses
+                    writer.add_scalar("test/loss", loss.item(), iteration)
+                    writer.add_scalar("test/accuracy", (np.sum(np.diag(CM)) / numClasses), iteration)
+
+                timeEnd_eval = time.time() - timeStart_eval
+
+            # print results
+            print('\nloss(100 pre-saved data)=%.3f, accuracy(100 pre-saved data)=%.3f\n' % (average_loss, 100 * average_accuracy))
+            accuracy_runs.append(average_accuracy)
+            time_runs_eval.append(timeEnd_eval)
+
+
+        # print(accuracy_runs)
+        # print()
+        # print(time_runs_train)
+        # print()
+        # print(time_runs_eval)
+        # print()
+        # print(f'run time: {str(timedelta(seconds=(time.time() - timeAbsolute)))}\n{args}')
+        # print('##################################################################')
+        data[curBudget] = (np.mean(accuracy_runs), np.mean(time_runs_train), np.mean(time_runs_eval))
+
+    print(data)
     print(f'run time: {str(timedelta(seconds=(time.time() - timeAbsolute)))}\n{args}')
     print('##################################################################')
-
 
 if __name__ == '__main__':
     main()
