@@ -95,6 +95,10 @@ def parse_args():
                         default=50,
                         type=int,
                         help='Embedding dimension.')
+    parser.add_argument('--dimHid',
+                        default=50,
+                        type=int,
+                        help='Hidden dimension.')
     parser.add_argument('--logDir', default=None, type=str, help='tensorboardXs save directory location.')  # TODO
     parser.add_argument('--numRuns', default=5, type=int, help='The number of times the experiment should be repeated. The performance metrics gets averaged over all runs.')
 
@@ -137,7 +141,7 @@ def main():
 
     # following the paper parameters
     args.numLayers = 1
-    args.dimHid = 480          # results in a budget of 100K
+    args.dimHid = 460          # results in a budget of 100K
     print(args)
 
     if args.logDir is None:
@@ -176,6 +180,7 @@ def main():
             # print(model)
             numParams = sum(p.numel() for p in model.parameters() if p.requires_grad)
             print(f'Number of parameters: {numParams}')
+
             # print(f'Number of residual gated graph convolutional layers: {args.numLayers}')
             # print(f'Hidden dim: {args.dimHid}')
 

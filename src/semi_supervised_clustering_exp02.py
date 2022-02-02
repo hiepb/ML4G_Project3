@@ -1,39 +1,3 @@
-# task_parameters = {}
-# task_parameters['flag_task'] = 'clustering'
-# task_parameters['nb_communities'] = 10
-# task_parameters['nb_clusters_target'] = task_parameters['nb_communities']
-# task_parameters['Voc'] = task_parameters['nb_communities'] + 1
-# task_parameters['size_min'] = 5
-# task_parameters['size_max'] = 25
-# task_parameters['p'] = 0.5
-# task_parameters['q'] = 0.1
-# file_name = 'data/set_100_clustering_maps_p05_q01_size5_25_2017-10-31_10-25-00_.txt'
-# with open(file_name, 'rb') as fp:
-#     all_trainx = pickle.load(fp)
-# task_parameters['all_trainx'] = all_trainx[:100]
-
-
-# # network parameters
-# net_parameters = {}
-# net_parameters['Voc'] = task_parameters['Voc']
-# net_parameters['D'] = 50
-# net_parameters['nb_clusters_target'] = task_parameters['nb_clusters_target']
-# net_parameters['H'] = 50
-# net_parameters['L'] = 10
-# #print(net_parameters)
-
-
-# # optimization parameters
-# opt_parameters = {}
-# opt_parameters['learning_rate'] = 0.00075   # ADAM
-# opt_parameters['max_iters'] = 5000
-# opt_parameters['batch_iters'] = 100
-# if 2==1: # fast debugging
-#     opt_parameters['max_iters'] = 101
-#     opt_parameters['batch_iters'] = 10
-# opt_parameters['decay_rate'] = 1.25
-
-
 from original_model import Graph_OurConvNet
 from pyg_model import RGGConvModel
 import block
@@ -44,8 +8,8 @@ import os
 import time
 from datetime import timedelta
 import argparse
-import pickle
 import pathlib
+import pickle
 from collections import OrderedDict
 import numpy as np
 import random
@@ -70,15 +34,15 @@ def set_seed(seed):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, default='pyg', choices=['pyg'], help='Original was removed because its components consists of 2 confvs so layer=1 is infeasible')
+    parser.add_argument('--model', type=str, default='pyg', choices=['orig', 'pyg'])
     parser.add_argument('--max_iters', type=int, default=5000)
 #    parser.add_argument('--batch_iters', type=int, default=100)
     parser.add_argument('--learning_rate', type=float, default=0.00075)
     parser.add_argument('--decay_rate', type=float, default=1.25)
     parser.add_argument('--no_cuda', help='Set this if cuda is availbable, but you do NOT want to use it.', action='store_true')
+    parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--numComm', type=int, default=10, help='Number of communities in the graph')
     parser.add_argument('dataDir', type=str, help='path to the data directory')
-    parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--sizeMin',
                         default=5,
                         type=int,
@@ -91,6 +55,10 @@ def parse_args():
                         default=0.5,
                         type=float,
                         help='Probability that two nodes of the same community are connected.')
+    parser.add_argument('-q',
+                        default=0.1,
+                        type=float,
+                        help='Probability that two nodes of the different communities are connected.')
     parser.add_argument('--dimEmb',
                         default=50,
                         type=int,
@@ -126,6 +94,7 @@ def create_legacy_parameters(args):
 
 
 def main():
+
     args = parse_args()
     if args.seed:
         set_seed(args.seed)
@@ -134,10 +103,8 @@ def main():
     args.vocSize = args.numComm + 1
     args.datasetPath = pathlib.Path(args.dataDir)
     args.datasetPath = args.datasetPath.joinpath('set_100_clustering_maps_p05_q01_size5_25_2017-10-31_10-25-00_.txt')
-
     # following the paper parameters
-    args.numLayers = 1
-    args.dimHid = 480          # results in a budget of 100K
+    args.dimHid = 50
     print(args)
 
     if args.logDir is None:
@@ -153,8 +120,8 @@ def main():
         print('Using CUDA: FALSE')
 
     data = OrderedDict()
-    for curQ in [0.1, 0.2, 0.35, 0.5]:
-        args.q = curQ
+    for curL in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]:
+        args.numLayers = curL
         accuracy_runs = []
         time_runs_train = []
         time_runs_eval = []
@@ -173,9 +140,9 @@ def main():
                 model = model.cuda()
 
             # number of network parameters
+            # numParams = sum(p.numel() for p in model.parameters() if p.requires_grad)
             # print(model)
-            numParams = sum(p.numel() for p in model.parameters() if p.requires_grad)
-            print(f'Number of parameters: {numParams}')
+            # print(f'Number of parameters: {numParams}')
             # print(f'Number of residual gated graph convolutional layers: {args.numLayers}')
             # print(f'Hidden dim: {args.dimHid}')
 
@@ -199,7 +166,7 @@ def main():
             tab_results = []
 
             tensorboardPath = pathlib.Path.cwd()
-            tensorboardPath = tensorboardPath.joinpath('runs', logDir, f'q_{curQ}', f'run{str(run).zfill(4)}')
+            tensorboardPath = tensorboardPath.joinpath('runs', logDir, f'L_{curL}', f'run{str(run).zfill(4)}')
             writer = SummaryWriter(tensorboardPath)    # TODO
             print(f'Writing results of run {str(run).zfill(4)} to: {writer.logdir}')
 
@@ -302,6 +269,7 @@ def main():
 
                     if use_cuda:
                         weight = weight.cuda()
+
                     loss = lossFn(weight, out, graphPyg.y)
                     loss_train = loss.item()
                     running_loss += loss_train
@@ -337,10 +305,10 @@ def main():
         # print()
         # print(f'run time: {str(timedelta(seconds=(time.time() - timeAbsolute)))}\n{args}')
         # print('##################################################################')
-        data[curQ] = (np.mean(accuracy_runs), np.mean(time_runs_train), np.mean(time_runs_eval))
+        data[curL] = (np.mean(accuracy_runs), np.mean(time_runs_train), np.mean(time_runs_eval))
 
     print(data)
-    utils.create_plots(data, 'q', logDir)
+    utils.create_plots(data, 'L', logDir)
     print(f'run time: {str(timedelta(seconds=(time.time() - timeAbsolute)))}\n{args}')
     print('##################################################################')
 
